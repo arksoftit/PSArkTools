@@ -18,4 +18,8 @@ Conjunto de scripts en PowerShell para soporte técnico rápido en entornos Wind
 ```powershell
 .\SoporteTool.ps1          # Menú interactivo
 .\SoporteTool.ps1 -Quick   # Modo rápido en consola
+<<<<<<< HEAD
 .\SoporteTool.ps1 -Report  # Genera reporte en ./Reportes/
+=======
+.\SoporteTool.ps1 -Report  # Genera reporte en ./Reportes/
+>>>>>>> 07508d1954fef225306fb68036a46000e6987dd2
