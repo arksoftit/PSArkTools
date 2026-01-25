@@ -1,0 +1,19 @@
+
+---
+
+### 3. **Añade un `.gitignore`**
+
+Evita subir archivos temporales o sensibles:
+
+```gitignore
+# Carpetas de salida
+/Reportes/*
+/Logs/*
+
+# Excepción: mantener las carpetas (pero no su contenido)
+!/Reportes/.gitkeep
+!/Logs/.gitkeep
+
+# Archivos temporales
+*.tmp
+Thumbs.db
