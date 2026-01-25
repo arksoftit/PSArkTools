@@ -20,6 +20,60 @@ if (!(Test-Path $LogPath))    { New-Item -Path $LogPath    -ItemType Directory -
 $scriptDir = Split-Path $MyInvocation.MyCommand.Path -Parent
 . "$scriptDir\Scripts\FixComunes.ps1"
 
+function Get-RegionalSettings {
+    Write-Host "`n=== CONFIGURACIÓN REGIONAL (INTERNACIONAL) ===" -ForegroundColor Cyan
+    try {
+        $key = "HKCU:\Control Panel\International"
+        if (-not (Test-Path $key)) {
+            Write-Host "❌ Clave de registro no encontrada." -ForegroundColor Red
+            return
+        }
+
+        $props = @{
+            sDecimal         = "Separador Decimal"
+            sThousand        = "Separador de Miles"
+            sMonDecimalSep   = "Separador Decimal (Moneda)"
+            sMonThousandSep  = "Separador de Miles (Moneda)"
+            sShortDate       = "Formato Fecha Corta"
+            sTimeFormat      = "Formato de Hora"
+            sCurrency        = "Símbolo de Moneda"
+        }
+
+        foreach ($prop in $props.Keys) {
+            $value = (Get-ItemProperty -Path $key -Name $prop -ErrorAction SilentlyContinue).$prop
+            if ($null -eq $value) { $value = "No definido" }
+            Write-Host "$($props[$prop]) ($prop): $value"
+        }
+    } catch {
+        Write-Host "❌ Error al leer configuración regional: $_" -ForegroundColor Red
+    }
+}
+
+function Set-RegionalSettings {
+    Write-Host "`n[🔧 Aplicando configuración regional estándar...]" -ForegroundColor Yellow
+    $key = "HKCU:\Control Panel\International"
+    
+    try {
+        # Crear la clave si no existe (poco probable, pero por seguridad)
+        if (-not (Test-Path $key)) {
+            New-Item -Path $key -Force | Out-Null
+        }
+
+        Set-ItemProperty -Path $key -Name "sDecimal" -Value "."
+        Set-ItemProperty -Path $key -Name "sThousand" -Value ","
+        Set-ItemProperty -Path $key -Name "sMonDecimalSep" -Value "."
+        Set-ItemProperty -Path $key -Name "sMonThousandSep" -Value ","
+        Set-ItemProperty -Path $key -Name "sShortDate" -Value "dd/MM/yyyy"
+        Set-ItemProperty -Path $key -Name "sTimeFormat" -Value "hh:mm:ss tt"
+        Set-ItemProperty -Path $key -Name "sCurrency" -Value "Bs."
+
+        Write-Host "✅ Configuración regional actualizada correctamente." -ForegroundColor Green
+        Write-Host "⚠️  Los cambios se aplicarán en nuevas sesiones o tras reiniciar el Explorador." -ForegroundColor Gray
+    } catch {
+        Write-Host "❌ Error al modificar configuración regional: $_" -ForegroundColor Red
+    }
+}
+
 # Función auxiliar para obtener info del sistema
 function Get-SystemSummary {
     $info = Get-ComputerInfo -Property WindowsProductName, WindowsVersion, OsArchitecture, CsName, CsTotalPhysicalMemory
@@ -86,7 +140,7 @@ if ($Report) {
 do {
     Clear-Host
     Write-Host "=== HERRAMIENTA DE SOPORTE ===" -ForegroundColor White -BackgroundColor DarkBlue
-    Write-Host "=== PSARKTOOLS Ver. 0.1.1 ===" -ForegroundColor Yellow -BackgroundColor DarkBlue
+    Write-Host "=== PSARKTOOLS Ver. 0.1.2 ===" -ForegroundColor Yellow -BackgroundColor DarkBlue
     Write-Host "=== Copyright (c) 2025 JUAN ERNESTO PÁEZ MUJÍCA ===" -ForegroundColor White -BackgroundColor DarkGreen
     Write-Host "1. Informacion del Sistema"
     Write-Host "2. Configuracion de Red"
@@ -96,6 +150,7 @@ do {
     Write-Host "6. Generar Reporte Completo"
     Write-Host "7. Modo Rapido (Consola)"
     Write-Host "8. Aplicar Reparaciones Comunes"
+    Write-Host "9. Configuración Regional"
     Write-Host "0. Salir"
     $opcion = Read-Host "`nSeleccione opcion"
     switch ($opcion) {
@@ -175,6 +230,20 @@ do {
             Write-Host "`n=== APLICANDO REPARACIONES COMUNES ===" -ForegroundColor White -BackgroundColor DarkRed
             Invoke-ReparacionesComunes
             pause
+        }
+        '9' {
+            do {
+                Clear-Host
+                Write-Host "=== CONFIGURACIÓN REGIONAL ===" -ForegroundColor White -BackgroundColor DarkCyan
+                Write-Host "1. Ver configuración actual"
+                Write-Host "2. Aplicar configuración estándar"
+                Write-Host "0. Volver al menú principal"
+                $subOpcion = Read-Host "`nSeleccione opción"
+                switch ($subOpcion) {
+                    '1' { Get-RegionalSettings; pause }
+                    '2' { Set-RegionalSettings; pause }
+                }
+            } while ($subOpcion -ne '0')
         }
     }   
 } while ($opcion -ne '0')
