@@ -87,7 +87,7 @@ do {
     Clear-Host
     Write-Host "=== HERRAMIENTA DE SOPORTE ===" -ForegroundColor White -BackgroundColor DarkBlue
     Write-Host "=== PSARKTOOLS ===" -ForegroundColor Yellow -BackgroundColor DarkBlue
-    Write-Host "=== JUAN ERNESTO PAEZ ===" -ForegroundColor White -BackgroundColor DarkBlue
+    Write-Host "=== Copyright (c) 2025 JUAN ERNESTO PÁEZ MUJÍCA ===" -ForegroundColor White -BackgroundColor DarkGreen
     Write-Host "1. Informacion del Sistema"
     Write-Host "2. Configuracion de Red"
     Write-Host "3. Estado de Discos"
