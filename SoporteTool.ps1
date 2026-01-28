@@ -410,7 +410,7 @@ if ($Report) {
 do {
     Clear-Host
     Write-Host "=== HERRAMIENTA DE SOPORTE ===" -ForegroundColor White -BackgroundColor DarkBlue
-    Write-Host "=== PSARKTOOLS Ver. 0.1.2 ===" -ForegroundColor Yellow -BackgroundColor DarkBlue
+    Write-Host "=== PSARKTOOLS Ver. 0.1.4 ===" -ForegroundColor Yellow -BackgroundColor DarkBlue
     Write-Host "=== Copyright (c) 2025 JUAN ERNESTO PÁEZ MUJÍCA ===" -ForegroundColor White -BackgroundColor DarkGreen
     Write-Host "1. Informacion del Sistema"
     Write-Host "2. Configuracion de Red"
