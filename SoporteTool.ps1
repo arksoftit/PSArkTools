@@ -85,6 +85,276 @@ function Get-SystemSummary {
     }
 }
 
+function Get-FolderPermissions {
+    param([string]$Path)
+
+    if (-not (Test-Path $Path)) {
+        Write-Host "❌ La ruta '$Path' no existe." -ForegroundColor Red
+        return
+    }
+
+    Write-Host "`n=== PERMISOS ACTUALES DE: $Path ===" -ForegroundColor Cyan
+    try {
+        $acl = Get-Acl -Path $Path
+        $acl.Access | Select-Object IdentityReference, FileSystemRights, AccessControlType, IsInherited |
+            Format-Table -AutoSize
+    } catch {
+        Write-Host "❌ Error al leer permisos: $_" -ForegroundColor Red
+    }
+}
+
+function Set-FolderPermissions {
+    param(
+        [string]$Path,
+        [string]$Identity,      # Ej: "juanep", "Usuarios", "Administradores"
+        [string]$Permission = "Modify",  # FullControl, ReadAndExecute, Modify, etc.
+        [string]$AccessType = "Allow"    # Allow / Deny
+    )
+
+    if (-not (Test-Path $Path)) {
+        Write-Host "❌ La ruta '$Path' no existe." -ForegroundColor Red
+        return
+    }
+
+    try {
+        $acl = Get-Acl -Path $Path
+        $identityRef = New-Object System.Security.Principal.NTAccount($Identity)
+        $permissionRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            $identityRef, $Permission, "ContainerInherit,ObjectInherit", "None", $AccessType
+        )
+        $acl.SetAccessRule($permissionRule)
+        Set-Acl -Path $Path -AclObject $acl
+
+        Write-Host "✅ Permisos actualizados en '$Path' para '$Identity': $Permission ($AccessType)" -ForegroundColor Green
+    } catch {
+        Write-Host "❌ Error al modificar permisos: $_" -ForegroundColor Red
+    }
+}
+
+function Get-USBDevices {
+    Write-Host "`n=== DISPOSITIVOS USB CONECTADOS ===" -ForegroundColor Magenta
+    try {
+        $usbDevices = Get-PnpDevice | Where-Object {
+            $_.Class -eq 'USB' -and $_.Status -eq 'OK' -and $_.Present
+        }
+
+        if ($usbDevices) {
+            $usbDevices | Select-Object Name, Manufacturer, InstanceId |
+                Format-Table -AutoSize
+        } else {
+            Write-Host "⚠️  No se encontraron dispositivos USB activos." -ForegroundColor Gray
+        }
+    } catch {
+        Write-Host "❌ Error al consultar dispositivos USB: $_" -ForegroundColor Red
+    }
+}
+
+function Get-SerialPortConfig {
+    Write-Host "`n=== CONFIGURACIÓN DE PUERTOS SERIALES (COM) ===" -ForegroundColor Cyan
+    try {
+        # Ejecutar 'mode' y capturar toda la salida
+        $modeOutput = & cmd /c "mode" 2>$null
+
+        if ($null -eq $modeOutput) {
+            Write-Host "⚠️  No se pudo ejecutar el comando 'mode'." -ForegroundColor Yellow
+            return
+        }
+
+        # Bandera para saber si encontramos al menos un puerto COM
+        $foundCom = $false
+
+        # Procesar línea por línea
+        for ($i = 0; $i -lt $modeOutput.Count; $i++) {
+            $line = $modeOutput[$i]
+
+            # Buscar líneas que comiencen con "Estado para dispositivo COM"
+            if ($line -match "^Estado para dispositivo COM\d+:") {
+                $foundCom = $true
+                # Mostrar esta línea y las siguientes hasta la próxima sección o final
+                Write-Host $line -ForegroundColor Green
+                $i++  # Avanzar a la siguiente línea
+
+                # Mostrar líneas de configuración (mientras tengan sangría o sean parte del bloque)
+                while ($i -lt $modeOutput.Count -and 
+                       ($modeOutput[$i] -match "^\s{4}[A-Z]" -or 
+                        $modeOutput[$i] -match "^-{5,}")) {
+                    Write-Host $modeOutput[$i]
+                    $i++
+                }
+                $i--  # Compensar el incremento del bucle
+            }
+        }
+
+        if (-not $foundCom) {
+            Write-Host "⚠️  No se detectaron puertos seriales COM configurados." -ForegroundColor Gray
+        }
+
+    } catch {
+        Write-Host "❌ Error al obtener configuración de puertos COM: $_" -ForegroundColor Red
+    }   
+}
+
+function Get-AvailableComPorts {
+    $ports = @()
+    try {
+        $serialKey = "HKLM:\HARDWARE\DEVICEMAP\SERIALCOMM"
+        if (Test-Path $serialKey) {
+            $props = Get-ItemProperty -Path $serialKey
+            foreach ($prop in $props.PSObject.Properties) {
+                if ($prop.Name -notlike "PS*") {
+                    $ports += [PSCustomObject]@{
+                        Device = $prop.Name
+                        Port   = $prop.Value
+                    }
+                }
+            }
+        }
+    } catch {}
+    return $ports
+}
+
+function Test-SerialPortCommunication {
+    Write-Host "`n=== PRUEBA DE COMUNICACIÓN SERIAL ===" -ForegroundColor Cyan
+
+    # Obtener puertos COM disponibles
+    $comPorts = Get-AvailableComPorts
+    if (-not $comPorts) {
+        Write-Host "❌ No se encontraron puertos COM." -ForegroundColor Red
+        return
+    }
+
+    # Mostrar lista numerada
+    Write-Host "`nPuertos COM disponibles:"
+    for ($i = 0; $i -lt $comPorts.Count; $i++) {
+        Write-Host "[$($i+1)] $($comPorts[$i].Port) ($($comPorts[$i].Device))"
+    }
+
+    # Seleccionar puerto
+    $selection = Read-Host "`nSeleccione un puerto (1-$($comPorts.Count)) o '0' para cancelar"
+    if ($selection -eq '0') { return }
+    if (-not ($selection -ge 1 -and $selection -le $comPorts.Count)) {
+        Write-Host "⚠️  Selección inválida." -ForegroundColor Yellow
+        return
+    }
+
+    $selectedPort = $comPorts[$selection - 1].Port
+    Write-Host "`nProbando comunicación con $selectedPort..." -ForegroundColor Green
+
+    # Configuración típica para impresoras fiscales
+    $baudRate = 9600
+    $dataBits = 8
+    $parity = "None"
+    $stopBits = "One"
+
+    try {
+        # Crear y configurar el puerto
+        $port = New-Object System.IO.Ports.SerialPort
+        $port.PortName = $selectedPort
+        $port.BaudRate = $baudRate
+        $port.DataBits = $dataBits
+        $port.Parity = $parity
+        $port.StopBits = $stopBits
+        $port.ReadTimeout = 2000  # 2 segundos
+        $port.WriteTimeout = 2000
+
+        # Abrir puerto
+        $port.Open()
+        if (-not $port.IsOpen) {
+            throw "No se pudo abrir el puerto."
+        }
+
+        # Enviar comando de prueba (ej: reinicio suave de impresora térmica)
+        # ESC @ = Inicialización estándar en impresoras ESC/POS
+        $initCommand = [byte[]]@(27, 64)  # ESC @
+        $port.Write($initCommand, 0, $initCommand.Length)
+        Start-Sleep -Milliseconds 300
+
+        # Intentar leer respuesta (muchas impresoras no responden, pero otras sí)
+        $response = ""
+        try {
+            $response = $port.ReadLine()
+        } catch {
+            # Timeout es normal en impresoras sin eco
+        }
+
+        $port.Close()
+
+        if ($response) {
+            Write-Host "✅ Respuesta recibida: $response" -ForegroundColor Green
+        } else {
+            Write-Host "ℹ️  Comando enviado. Sin respuesta (normal en impresoras sin eco)." -ForegroundColor Gray
+        }
+
+        } catch {
+            Write-Host ("❌ Error al comunicarse con {0}: {1}" -f $selectedPort, $_.Exception.Message) -ForegroundColor Red
+            if ($port.IsOpen) { $port.Close() }
+        }
+}
+function Get-TPMInfo {
+    Write-Host "`n=== INFORMACIÓN DE TPM ===" -ForegroundColor Magenta
+    if (Get-Command Get-Tpm -ErrorAction SilentlyContinue) {
+        try {
+            $tpm = Get-Tpm
+            if ($tpm.TpmPresent) {
+                Write-Host "✅ TPM presente: Sí"
+                Write-Host "Versión: $($tpm.ManufacturerVersion)"
+                Write-Host "Fabricante: $($tpm.ManufacturerIdTxt)"
+                Write-Host "Estado: $(if($tpm.TpmReady){'Listo'}else{'No configurado'})"
+            } else {
+                Write-Host "❌ TPM no detectado."
+                Write-Host "ℹ️  Puede estar desactivado en BIOS/UEFI o no soportado por el hardware."
+            }
+        } catch {
+            Write-Host "❌ Error al consultar TPM: $($_.Exception.Message)" -ForegroundColor Red
+        }
+    } else {
+        Write-Host "⚠️  Cmdlet 'Get-Tpm' no disponible (requiere Windows 8+)." -ForegroundColor Yellow
+    }
+}
+
+function Get-MotherboardInfo {
+    Write-Host "`n=== INFORMACIÓN DE LA PLACA BASE ===" -ForegroundColor Cyan
+    try {
+        $mb = Get-CimInstance -ClassName Win32_BaseBoard -ErrorAction Stop
+        Write-Host "Fabricante: $($mb.Manufacturer)"
+        Write-Host "Modelo: $($mb.Product)"
+        Write-Host "Versión: $($mb.Version)"
+        Write-Host "Número de serie: $($mb.SerialNumber)"
+    } catch {
+        Write-Host "❌ No se pudo obtener información de la placa base." -ForegroundColor Red
+    }
+}
+
+function Get-PCIDevicesForDrivers {
+    Write-Host "`n=== DISPOSITIVOS PCI/PCIe (para búsqueda de drivers) ===" -ForegroundColor Cyan
+    try {
+        $pciDevices = Get-PnpDevice | Where-Object {
+            $_.InstanceId -match '^PCI\\' -and $_.Status -eq 'OK'
+        }
+
+        if ($pciDevices) {
+            foreach ($dev in $pciDevices) {
+                # Extraer VEN y DEV del InstanceId
+                $venDev = if ($dev.InstanceId -match 'VEN_([0-9A-F]{4})&DEV_([0-9A-F]{4})') {
+                    "VEN_$($matches[1])&DEV_$($matches[2])"
+                } else {
+                    "No disponible"
+                }
+
+                Write-Host "Nombre: $($dev.Name)"
+                Write-Host "Fabricante: $($dev.Manufacturer)"
+                Write-Host "ID para drivers: $venDev"
+                Write-Host "InstanceId: $($dev.InstanceId)"
+                Write-Host ("-" * 50)
+            }
+        } else {
+            Write-Host "⚠️  No se encontraron dispositivos PCI/PCIe activos." -ForegroundColor Gray
+        }
+    } catch {
+        Write-Host "❌ Error al consultar dispositivos PCI: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
 # Modo rápido
 if ($Quick) {
     Write-Host "=== SISTEMA ===" -ForegroundColor Cyan
@@ -151,6 +421,13 @@ do {
     Write-Host "7. Modo Rapido (Consola)"
     Write-Host "8. Aplicar Reparaciones Comunes"
     Write-Host "9. Configuración Regional"
+    Write-Host "10. Gestión de Permisos de Carpetas"
+    Write-Host "11. Dispositivos USB Conectados"
+    Write-Host "12. Configuración de Puertos COM (Impresoras Fiscales)"
+    Write-Host "13. Prueba de Comunicación Serial (Impresoras Fiscales)"
+    Write-Host "14. Información de TPM"
+    Write-Host "15. Información de Placa Base"
+    Write-Host "16. Detectar Hardware PCI/PCIe (para Drivers)"
     Write-Host "0. Salir"
     $opcion = Read-Host "`nSeleccione opcion"
     switch ($opcion) {
@@ -244,6 +521,54 @@ do {
                     '2' { Set-RegionalSettings; pause }
                 }
             } while ($subOpcion -ne '0')
+        }
+        '10' {
+        Write-Host "`n=== GESTIÓN DE PERMISOS ===" -ForegroundColor Yellow
+        $folder = Read-Host "Ingrese la ruta de la carpeta (ej. C:\Datos)"
+        if (-not (Test-Path $folder)) {
+            Write-Host "⚠️  La carpeta no existe." -ForegroundColor Red
+            pause
+            continue
+        }
+
+        Write-Host "`n[1] Ver permisos actuales"
+        Write-Host "[2] Asignar permisos a un usuario/grupo"
+        $subopt = Read-Host "Seleccione opción"
+
+        if ($subopt -eq '1') {
+            Get-FolderPermissions -Path $folder
+        }
+        elseif ($subopt -eq '2') {
+            $user = Read-Host "Usuario o grupo (ej. juanep, Usuarios, Administradores)"
+            $perm = Read-Host "Permiso (Modify, FullControl, ReadAndExecute, etc.) [Enter = Modify]"
+            if ($perm -eq "") { $perm = "Modify" }
+            Set-FolderPermissions -Path $folder -Identity $user -Permission $perm
+        }
+        pause
+        }
+        '11' {
+            Get-USBDevices
+            pause
+        }
+        '12' {
+            Get-SerialPortConfig
+            pause
+        }
+        '13' {
+            Test-SerialPortCommunication
+            pause
+        }
+        '14' {
+            Get-TPMInfo
+            pause
+        }
+        '15' {
+            Get-MotherboardInfo
+            pause
+        }
+        '16' {
+            Get-PCIDevicesForDrivers
+            pause
         }
     }   
 } while ($opcion -ne '0')
