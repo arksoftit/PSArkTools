@@ -61,5 +61,18 @@ Esto permite ejecutar scripts locales sin afectar la seguridad del sistema.
 
 ## 2. Versión mínima requerida de PowerShell
 Este script requiere PowerShell 5.1 o superior (incluido en Windows 10/11).
-Si usas una versión anterior o deseas la más reciente, descárgala desde:
+verifique su version con:
+  $PSVersionTable.PSVersion
+Si la repuesta es algo como
+  Major  Minor  Build  Revision
+-----  -----  -----  --------
+5      1      26100  7462
+debes actualizar a mas reciente más reciente, descárgala desde:
 🔗 https://aka.ms/powershell-release?tag=stable
+
+ y obtener algo como:
+ $PSVersionTable.PSVersion
+
+Major  Minor  Patch  PreReleaseLabel BuildLabel
+-----  -----  -----  --------------- ----------
+7      5      4
