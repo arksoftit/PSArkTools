@@ -5,6 +5,17 @@ param(
     [string]$ReportPath,
     [string]$LogPath
 )
+# ==================================================================
+# VERIFICACIÓN DE VERSIÓN DE POWERSHELL (requerida para cmdlets usados)
+# ==================================================================
+$psVersion = $PSVersionTable.PSVersion
+if ($psVersion.Major -lt 5 -or ($psVersion.Major -eq 5 -and $psVersion.Minor -lt 1)) {
+    Write-Host "❌ Requisito no cumplido: Se necesita PowerShell 5.1 o superior." -ForegroundColor Red
+    Write-Host "   Versión actual: $psVersion" -ForegroundColor Yellow
+    Write-Host "   Descarga: https://aka.ms/powershell-release?tag=stable" -ForegroundColor Cyan
+    exit 1
+}
+# ==================================================================
 
 # Directorio donde está SoporteTool.ps1
 $scriptDir = Split-Path $MyInvocation.MyCommand.Path -Parent
