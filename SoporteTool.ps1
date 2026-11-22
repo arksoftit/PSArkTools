@@ -478,7 +478,7 @@ if ($Report) {
     }
     Write-Host "Reporte guardado: $reportFile" -ForegroundColor Green
     exit
-}
+}   
 
 # Modo interactivo
 do {
