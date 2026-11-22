@@ -88,11 +88,15 @@ function Set-RegionalSettings {
 # Función auxiliar para obtener info del sistema
 function Get-SystemSummary {
     $info = Get-ComputerInfo -Property WindowsProductName, WindowsVersion, OsArchitecture, CsName, CsTotalPhysicalMemory
+    $gpu = Get-CimInstance -ClassName Win32_VideoController -ErrorAction SilentlyContinue | Select-Object -First 1
+    $memoriaGPU = if ($gpu) { [math]::Round($gpu.AdapterRAM / 1GB, 1) } else { "N/A" }
     return @{
         Nombre = $info.CsName
         OS = "$($info.WindowsProductName) $($info.WindowsVersion)"
         Arquitectura = $info.OsArchitecture
         MemoriaGB = [math]::Round($info.CsTotalPhysicalMemory / 1GB, 1)
+        GPU = if ($gpu) { $gpu.Name } else { "No detectada" }
+        MemoriaGPU = $memoriaGPU
     }
 }
 
@@ -336,6 +340,51 @@ function Get-MotherboardInfo {
     }
 }
 
+function Get-DirectXInfo {
+    Write-Host "`n=== INFORMACIÓN DE DIRECTX ===" -ForegroundColor Cyan
+    Write-Host "ℹ️  En Windows 10/11, DirectX se actualiza mediante Windows Update." -ForegroundColor Gray
+    Write-Host "   No existen actualizaciones manuales de DirectX 12." -ForegroundColor Gray
+    
+    $tempFile = "$env:TEMP\dxdiag.txt"
+    try {
+        # Ejecutar dxdiag en modo silencioso
+        Start-Process -FilePath "dxdiag" -ArgumentList "/t `"$tempFile`"" -Wait -WindowStyle Hidden
+
+        if (-not (Test-Path $tempFile)) {
+            Write-Host "❌ No se generó el archivo de diagnóstico." -ForegroundColor Red
+            return
+        }
+
+        # Leer como texto completo y normalizar saltos de línea
+        $content = Get-Content $tempFile -Raw
+        if (-not $content) {
+            Write-Host "⚠️  El archivo de diagnóstico está vacío." -ForegroundColor Yellow
+            return
+        }
+
+        # Buscar versión en español o inglés (más tolerante)
+        if ($content -match '(?m)^\s*(?:DirectX Version|Versi.n de DirectX):\s*(.+)$') {
+            $version = $matches[1] -replace '[\r\n]', ''  # Eliminar saltos
+            $version = $version.Trim()
+            if ($version) {
+                Write-Host "✅ Versión actual: $version" -ForegroundColor Green
+            } else {
+                Write-Host "⚠️  Versión detectada, pero no legible." -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "⚠️  No se encontró la línea de versión en el diagnóstico." -ForegroundColor Yellow
+        }
+
+        # Limpiar
+        Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+    } catch {
+        Write-Host "❌ Error al consultar DirectX: $($_.Exception.Message)" -ForegroundColor Red
+        if (Test-Path $tempFile) {
+            Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Get-PCIDevicesForDrivers {
     Write-Host "`n=== DISPOSITIVOS PCI/PCIe (para búsqueda de drivers) ===" -ForegroundColor Cyan
     try {
@@ -365,6 +414,23 @@ function Get-PCIDevicesForDrivers {
         Write-Host "❌ Error al consultar dispositivos PCI: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
+function Get-GPUInfo {
+    Write-Host "`n=== INFORMACIÓN DE TARJETA GRÁFICA ===" -ForegroundColor Cyan
+    try {
+        $gpus = Get-CimInstance -ClassName Win32_VideoController -ErrorAction Stop
+        foreach ($gpu in $gpus) {
+            $memoriaGB = [math]::Round($gpu.AdapterRAM / 1GB, 1)
+            Write-Host "Nombre: $($gpu.Name)" -ForegroundColor Green
+            Write-Host "Memoria: $memoriaGB GB"
+            Write-Host "Procesador: $($gpu.VideoProcessor)"
+            Write-Host "Driver: $($gpu.DriverVersion) ($($gpu.DriverDate))"
+            Write-Host "Resolución: $($gpu.CurrentHorizontalResolution) x $($gpu.CurrentVerticalResolution)"
+            Write-Host ("-" * 50)
+        }
+    } catch {
+        Write-Host "❌ Error al obtener información de GPU: $_" -ForegroundColor Red
+    }
+}
 
 # Modo rápido
 if ($Quick) {
@@ -390,8 +456,6 @@ if ($Quick) {
 # Modo reporte
 if ($Report) {
     $reportFile = "$ReportPath\Reporte_$Computer_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
-    
-    # Sistema
     $sys = Get-SystemSummary
     "=== REPORTE TECNICO ===" | Out-File $reportFile
     "Fecha: $(Get-Date)" | Out-File $reportFile -Append
@@ -402,17 +466,16 @@ if ($Report) {
     "OS: $($sys.OS)" | Out-File $reportFile -Append
     "Arquitectura: $($sys.Arquitectura)" | Out-File $reportFile -Append
     "Memoria: $($sys.MemoriaGB) GB" | Out-File $reportFile -Append
-
+    "GPU: $($sys.GPU)" | Out-File $reportFile -Append
+    "Memoria GPU: $($sys.MemoriaGPU) GB" | Out-File $reportFile -Append
     "`n=== RED ===" | Out-File $reportFile -Append
     ipconfig /all | Out-File $reportFile -Append
-
     "`n=== DISCOS ===" | Out-File $reportFile -Append
     Get-Volume | Where-Object DriveLetter | ForEach-Object {
         $freeGB = [math]::Round($_.SizeRemaining/1GB, 1)
         $totalGB = [math]::Round($_.Size/1GB, 1)
         "$($_.DriveLetter): $freeGB GB libre de $totalGB GB" | Out-File $reportFile -Append
     }
-
     Write-Host "Reporte guardado: $reportFile" -ForegroundColor Green
     exit
 }
@@ -421,7 +484,7 @@ if ($Report) {
 do {
     Clear-Host
     Write-Host "=== HERRAMIENTA DE SOPORTE ===" -ForegroundColor White -BackgroundColor DarkBlue
-    Write-Host "=== PSARKTOOLS Ver. 0.1.4 ===" -ForegroundColor Yellow -BackgroundColor DarkBlue
+    Write-Host "=== PSARKTOOLS Ver. 0.1.8 ===" -ForegroundColor Yellow -BackgroundColor DarkBlue
     Write-Host "=== Copyright (c) 2025 JUAN ERNESTO PÁEZ MUJÍCA ===" -ForegroundColor White -BackgroundColor DarkGreen
     Write-Host "1. Informacion del Sistema"
     Write-Host "2. Configuracion de Red"
@@ -439,12 +502,14 @@ do {
     Write-Host "14. Información de TPM"
     Write-Host "15. Información de Placa Base"
     Write-Host "16. Detectar Hardware PCI/PCIe (para Drivers)"
+    Write-Host "17. Información de DirectX"
     Write-Host "0. Salir"
     $opcion = Read-Host "`nSeleccione opcion"
     switch ($opcion) {
         '1' {
             Write-Host "`n=== INFORMACION DEL SISTEMA ===" -ForegroundColor Cyan
             Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion, OsArchitecture, CsTotalPhysicalMemory | Format-List
+            Get-GPUInfo
             pause
         }
         '2' {
@@ -581,5 +646,10 @@ do {
             Get-PCIDevicesForDrivers
             pause
         }
+        '17' {
+            Get-DirectXInfo
+            pause
+        }
+        
     }   
 } while ($opcion -ne '0')
